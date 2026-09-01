@@ -88,33 +88,12 @@ jobs:
           echo "=== wasm-release install ==="
           ls -la out/wasm-release/filament/lib/ 2>/dev/null | head || true
 
-      - name: Compile demo material (matc)
+      - name: Grab prebuilt demo material (web examples compile with matc -a webgpu)
         run: |
           set -e
-          MATC=out/prebuilt-tools-release/bin/matc
-          ls -la "$MATC"
-          cat > /tmp/cardboard.mat <<'EOF'
-          material {
-              name : cardboard,
-              shadingModel : lit,
-              parameters : [
-                  { type : float3, name : baseColor },
-                  { type : float,  name : metallic },
-                  { type : float,  name : roughness }
-              ]
-          }
-
-          fragment {
-              void material(inout MaterialInputs material) {
-                  prepareMaterial(material);
-                  material.baseColor.rgb = materialParams.baseColor;
-                  material.metallic  = materialParams.metallic;
-                  material.roughness = materialParams.roughness;
-              }
-          }
-          EOF
-          "$MATC" -a all -o /tmp/cardboard.filamat /tmp/cardboard.mat
-          ls -la /tmp/cardboard.filamat
+          find out/cmake-wasm-release -name '*.filamat' | head -30
+          cp out/cmake-wasm-release/web/examples/examples/redball/plastic.filamat /tmp/plastic.filamat
+          ls -la /tmp/plastic.filamat
 
       - name: Cache save (skipped on cache hit; runs after success)
         if: always() && steps.filament-cache.outputs.cache-hit != 'true'
@@ -136,7 +115,7 @@ jobs:
             out/cmake-wasm-release/web/filament-js/filament.js
             out/cmake-wasm-release/web/filament-js/filament.wasm
             out/cmake-wasm-release/web/filament-js/filament.d.ts
-            /tmp/cardboard.filamat
+            /tmp/plastic.filamat
             /tmp/filament_build.log
           retention-days: 14
 
