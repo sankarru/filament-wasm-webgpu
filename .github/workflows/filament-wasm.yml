@@ -1,0 +1,87 @@
+name: build-filament-wasm-webgpu
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+env:
+  EMSDK_VERSION: 5.0.4   # pinned by google/filament (build/common/versions)
+  FILAMENT_TAG: main
+
+concurrency:
+  group: filament-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout Filament
+        uses: actions/checkout@v4
+        with:
+          repository: google/filament
+          ref: ${{ env.FILAMENT_TAG }}
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Install Emscripten ${{ env.EMSDK_VERSION }}
+        uses: myMindstorm/setup-emsdk@v14
+        with:
+          version: ${{ env.EMSDK_VERSION }}
+          actions-cache-folder: 'emsdk-cache'
+          no-cache: false
+
+      - name: Verify emsdk
+        run: |
+          echo "EMSDK=$EMSDK"
+          emcc --version | head -3
+
+      - name: Install host deps (ninja, libs for matc/resgen/cmgen)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ninja-build \
+            libcurl4-openssl-dev libpng-dev libjpeg-dev zlib1g-dev \
+            libtinfo-dev
+
+      - name: Build Filament (WebAssembly, WebGPU backend) release
+        run: |
+          echo "EMSDK=$EMSDK" >> "$GITHUB_ENV"
+          set -e
+          # -p wasm  : build WebAssembly target only
+          # -W       : FILAMENT_SUPPORTS_WEBGPU=ON  (adds --use-port=emdawnwebgpu)
+          # -a       : package release-web tgz (filament.js, .wasm, .d.ts)
+          ./build.sh -p wasm -W -a release 2>&1 | tee /tmp/filament_build.log
+
+      - name: List artifacts
+        run: |
+          echo "=== out archives ==="
+          ls -la out/*.tgz 2>/dev/null || true
+          echo "=== filament-js ==="
+          ls -la out/cmake-wasm-release/web/filament-js/ 2>/dev/null | head -30 || true
+          echo "=== wasm-release install ==="
+          ls -la out/wasm-release/filament/lib/ 2>/dev/null | head || true
+
+      - name: Upload Filament-wasm-webgpu artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: filament-wasm-webgpu
+          path: |
+            out/filament-release-web.tgz
+            out/cmake-wasm-release/web/filament-js/filament.js
+            out/cmake-wasm-release/web/filament-js/filament.wasm
+            out/cmake-wasm-release/web/filament-js/filament.d.ts
+            /tmp/filament_build.log
+          retention-days: 14
+
+      - name: Upload Filament wasm SDK libs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: filament-wasm-libs
+          path: |
+            out/cmake-wasm-release/web/filament-js/**
+            out/wasm-release/filament/**
+          retention-days: 7
