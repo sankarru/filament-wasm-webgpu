@@ -110,6 +110,17 @@ jobs:
         run: |
           echo "EMSDK=$EMSDK" >> "$GITHUB_ENV"
           set -e -o pipefail
+          # The ubuntu-latest runner image ships /usr/bin/ccache preinstalled.
+          # cmake's compiler auto-detection prefers it over clang unless the
+          # CC/CXX env vars are set to absolute paths (bare names are
+          # ignored because ccache's directory entry wins the PATH search).
+          # Remove it from PATH so cmake cannot pick it up, and point CC/CXX
+          # at the real host compilers via absolute paths.
+          rm -f /usr/bin/ccache || true
+          export PATH="$(dirname $(command -v clang || echo /usr/bin)):$PATH"
+          export CC="$(command -v clang)"
+          export CXX="$(command -v clang++)"
+          echo "CC=$CC CXX=$CXX PATH=$(echo $PATH | tr ':' '\n' | head -5 | tr '\n' ' ')"
           # -p wasm : build WebAssembly target only
           # -W      : FILAMENT_SUPPORTS_WEBGPU=ON (adds --use-port=emdawnwebgpu)
           # -a      : package release-web tgz (filament.js, .wasm, .d.ts)
