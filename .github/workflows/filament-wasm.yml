@@ -38,20 +38,24 @@ jobs:
           echo "EMSDK=$EMSDK"
           emcc --version | head -3
 
-      - name: Install host deps (ninja, libs for matc/resgen/cmgen)
+      - name: Install host deps (clang, ninja, libs for matc/resgen/cmgen)
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq ninja-build \
+          sudo apt-get install -y -qq ninja-build clang \
             libcurl4-openssl-dev libpng-dev libjpeg-dev zlib1g-dev \
             libtinfo-dev
 
       - name: Build Filament (WebAssembly, WebGPU backend) release
         run: |
           echo "EMSDK=$EMSDK" >> "$GITHUB_ENV"
-          set -e
-          # -p wasm  : build WebAssembly target only
-          # -W       : FILAMENT_SUPPORTS_WEBGPU=ON  (adds --use-port=emdawnwebgpu)
-          # -a       : package release-web tgz (filament.js, .wasm, .d.ts)
+          set -e -o pipefail
+          # Filament rejects GNU compiler for its host tools -> force Clang.
+          export CC=clang
+          export CXX=clang++
+          echo "CC=$CC  CXX=$CXX"
+          # -p wasm : build WebAssembly target only
+          # -W      : FILAMENT_SUPPORTS_WEBGPU=ON (adds --use-port=emdawnwebgpu)
+          # -a      : package release-web tgz (filament.js, .wasm, .d.ts)
           ./build.sh -p wasm -W -a release 2>&1 | tee /tmp/filament_build.log
 
       - name: List artifacts
