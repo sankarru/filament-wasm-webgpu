@@ -26,6 +26,11 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
+      - name: Record Filament commit (cache key)
+        id: fcom
+        run: |
+          echo "FILAMENT_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
       - name: Install Emscripten ${{ env.EMSDK_VERSION }}
         uses: myMindstorm/setup-emsdk@v14
         with:
@@ -48,6 +53,18 @@ jobs:
             libx11-dev libxcomposite-dev libxdamage-dev libxfixes-dev \
             libxrandr-dev libxext-dev
 
+      - name: Cache Filament build dirs (keyed on Filament commit)
+        id: filament-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            out/prebuilt-tools-release
+            out/cmake-wasm-release
+            out/prebuilt-tools-debug
+          key: filament-wasm-webgpu-${{ env.EMSDK_VERSION }}-${{ env.FILAMENT_COMMIT }}
+          restore-keys: |
+            filament-wasm-webgpu-${{ env.EMSDK_VERSION }}-
+
       - name: Build Filament (WebAssembly, WebGPU backend) release
         run: |
           echo "EMSDK=$EMSDK" >> "$GITHUB_ENV"
@@ -69,6 +86,16 @@ jobs:
           ls -la out/cmake-wasm-release/web/filament-js/ 2>/dev/null | head -30 || true
           echo "=== wasm-release install ==="
           ls -la out/wasm-release/filament/lib/ 2>/dev/null | head || true
+
+      - name: Cache save (skipped on cache hit; runs after success)
+        if: always() && steps.filament-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            out/prebuilt-tools-release
+            out/cmake-wasm-release
+            out/prebuilt-tools-debug
+          key: filament-wasm-webgpu-${{ env.EMSDK_VERSION }}-${{ env.FILAMENT_COMMIT }}
 
       - name: Upload Filament-wasm-webgpu artifacts
         if: always()
