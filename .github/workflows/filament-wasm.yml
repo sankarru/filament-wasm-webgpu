@@ -107,9 +107,9 @@ jobs:
           fragment {
               void material(inout MaterialInputs material) {
                   prepareMaterial(material);
-                  material.baseColor.rgb = getMaterialParameter("baseColor");
-                  material.metallic  = getMaterialParameter("metallic");
-                  material.roughness = getMaterialParameter("roughness");
+                  material.baseColor.rgb = materialParams.baseColor;
+                  material.metallic  = materialParams.metallic;
+                  material.roughness = materialParams.roughness;
               }
           }
           EOF
