@@ -7,7 +7,8 @@ on:
 
 env:
   EMSDK_VERSION: 5.0.4   # pinned by google/filament (build/common/versions)
-  FILAMENT_TAG: main
+  FILAMENT_TAG: '060fb3b16c4226df93d7231448ff2eb0f4dd2d5b'  # PINNED: stable cache key (was `main` → drift)
+  CACHE_VERSION: v2        # bump to discard poisoned caches (emsdk random path)
 
 concurrency:
   group: filament-build
@@ -31,30 +32,76 @@ jobs:
         run: |
           echo "FILAMENT_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
-      - name: Install Emscripten ${{ env.EMSDK_VERSION }}
-        uses: myMindstorm/setup-emsdk@v14
+      - name: Cache ccache
+        id: ccache-cache
+        uses: actions/cache@v4
         with:
-          version: ${{ env.EMSDK_VERSION }}
-          actions-cache-folder: 'emsdk-cache'
-          no-cache: false
+          path: |
+            ~/.cache/ccache
+            ~/.ccache
+          key: ccache-${{ env.CACHE_VERSION }}-${{ env.EMSDK_VERSION }}-${{ env.FILAMENT_COMMIT }}
+          restore-keys: |
+            ccache-${{ env.CACHE_VERSION }}-${{ env.EMSDK_VERSION }}-
 
-      - name: Verify emsdk
+      - name: Cache emsdk (fixed path for ninja stability)
+        id: emsdk-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/emsdk
+          key: emsdk-${{ env.EMSDK_VERSION }}-${{ env.CACHE_VERSION }}
+          restore-keys: |
+            emsdk-${{ env.EMSDK_VERSION }}-
+
+      - name: Install Emscripten ${{ env.EMSDK_VERSION }} (fixed ~/emsdk)
+        run: |
+          set -e
+          if [ -x "$HOME/emsdk/emsdk" ] && [ -x "$HOME/emsdk/upstream/emscripten/emcc" ]; then
+            echo "emsdk cache hit — skipping install"
+          else
+            echo "emsdk cache miss — installing to ~/emsdk"
+            rm -rf /tmp/emsdk "$HOME/emsdk"
+            git clone https://github.com/emscripten-core/emsdk.git /tmp/emsdk
+            cd /tmp/emsdk
+            ./emsdk install ${{ env.EMSDK_VERSION }}
+            ./emsdk activate ${{ env.EMSDK_VERSION }}
+            mv /tmp/emsdk "$HOME/emsdk"
+          fi
+          # expose fixed path
+          echo "EMSDK=$HOME/emsdk" >> "$GITHUB_ENV"
+          echo "$HOME/emsdk" >> "$GITHUB_PATH"
+          echo "$HOME/emsdk/upstream/emscripten" >> "$GITHUB_PATH"
+          NODE_BIN=$(ls -d "$HOME/emsdk"/node/*_64bit/bin 2>/dev/null | head -1 || true)
+          if [ -n "$NODE_BIN" ]; then echo "$NODE_BIN" >> "$GITHUB_PATH"; fi
+          echo "EMSDK=$HOME/emsdk"
+          ls -la "$HOME/emsdk/upstream/emscripten/emcc" 2>&1 | head -2
+
+      - name: Verify emsdk (fixed path)
         run: |
           echo "EMSDK=$EMSDK"
+          echo "PATH=$PATH" | tr ':' '\n' | head -10
           emcc --version | head -3
+          which emcc
+          emcc --version 2>&1 | head -1
+          echo "emsdk path stable: $EMSDK/upstream/emscripten/emcc"
 
-      - name: Install host deps (clang, ninja, X11 + libs; Dawn config needs X11 headers)
+      - name: Install host deps (clang, ninja, ccache, X11 + libs; Dawn config needs X11 headers)
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq ninja-build clang \
+          sudo apt-get install -y -qq ninja-build clang ccache \
             libc++-dev libc++abi-dev \
             libcurl4-openssl-dev libpng-dev libjpeg-dev zlib1g-dev \
             libtinfo-dev \
             libx11-dev libxcomposite-dev libxdamage-dev libxfixes-dev \
             libxrandr-dev libxext-dev libx11-xcb-dev libxcb1-dev \
             libgl1-mesa-dev libegl1-mesa-dev libgles2-mesa-dev
+          ccache --version | head -1
+          ccache --set-config=max_size=2.0G || true
+          ccache --set-config=hash_dir=false || true
+          ccache --set-config=sloppiness="pch_defines,time_macros,include_file_mtime,include_file_ctime,file_macro" || true
+          ccache -z || true
+          ccache -s || true
 
-      - name: Cache Filament build dirs (keyed on Filament commit)
+      - name: Cache Filament build dirs (keyed on Filament commit + CACHE_VERSION)
         id: filament-cache
         uses: actions/cache@v4
         with:
@@ -62,22 +109,32 @@ jobs:
             out/prebuilt-tools-release
             out/cmake-wasm-release
             out/prebuilt-tools-debug
-          key: filament-wasm-webgpu-${{ env.EMSDK_VERSION }}-${{ env.FILAMENT_COMMIT }}
+          key: filament-wasm-webgpu-${{ env.CACHE_VERSION }}-${{ env.EMSDK_VERSION }}-${{ env.FILAMENT_COMMIT }}
           restore-keys: |
-            filament-wasm-webgpu-${{ env.EMSDK_VERSION }}-
+            filament-wasm-webgpu-${{ env.CACHE_VERSION }}-${{ env.EMSDK_VERSION }}-
 
-      - name: Build Filament (WebAssembly, WebGPU backend) release
+      - name: Build Filament (WebAssembly, WebGPU backend) release — ccache-accelerated
         run: |
           echo "EMSDK=$EMSDK" >> "$GITHUB_ENV"
           set -e -o pipefail
-          # Filament rejects GNU compiler for its host tools -> force Clang.
-          export CC=clang
-          export CXX=clang++
+          # Host tools use clang via ccache; wasm uses emcc via ccache launcher.
+          export CC="ccache clang"
+          export CXX="ccache clang++"
+          export CMAKE_C_COMPILER_LAUNCHER=ccache
+          export CMAKE_CXX_COMPILER_LAUNCHER=ccache
+          # ccache workarounds for emscripten: allow time macros etc.
+          export CCACHE_SLOPPINESS="pch_defines,time_macros,include_file_mtime,include_file_ctime,file_macro"
+          export CCACHE_BASEDIR="$PWD"
           echo "CC=$CC  CXX=$CXX"
+          echo "CMAKE_C_COMPILER_LAUNCHER=$CMAKE_C_COMPILER_LAUNCHER"
+          echo "CCACHE_DIR=${CCACHE_DIR:-$HOME/.cache/ccache}"
+          ccache -s 2>&1 | head -30 || true
           # -p wasm : build WebAssembly target only
           # -W      : FILAMENT_SUPPORTS_WEBGPU=ON (adds --use-port=emdawnwebgpu)
           # -a      : package release-web tgz (filament.js, .wasm, .d.ts)
           ./build.sh -p wasm -W -a release 2>&1 | tee /tmp/filament_build.log
+          echo "=== ccache stats after build ==="
+          ccache -s 2>&1 | head -40 || true
 
       - name: List artifacts
         run: |
@@ -103,7 +160,7 @@ jobs:
             out/prebuilt-tools-release
             out/cmake-wasm-release
             out/prebuilt-tools-debug
-          key: filament-wasm-webgpu-${{ env.EMSDK_VERSION }}-${{ env.FILAMENT_COMMIT }}
+          key: filament-wasm-webgpu-${{ env.CACHE_VERSION }}-${{ env.EMSDK_VERSION }}-${{ env.FILAMENT_COMMIT }}
 
       - name: Upload Filament-wasm-webgpu artifacts
         if: always()
