@@ -117,31 +117,23 @@ jobs:
         run: |
           echo "EMSDK=$EMSDK" >> "$GITHUB_ENV"
           set -e -o pipefail
-          # Host tools use clang via ccache; wasm uses emcc via ccache launcher.
-          # NOTE: CC must be the REAL compiler binary (NOT "ccache clang") — a
-          # space-prefixed string breaks cmake's language/OBJC detection, which
-          # derives CMAKE_OBJC_COMPILER from the first token of CC ("ccache") and
-          # then fails with "ccache: error: missing equal sign ...".
-          # Instead set CC to the compiler and enable ccache via the launcher vars.
-          export CC="clang"
-          export CXX="clang++"
-          export CMAKE_C_COMPILER_LAUNCHER=ccache
-          export CMAKE_CXX_COMPILER_LAUNCHER=ccache
-          export CMAKE_OBJC_COMPILER_LAUNCHER=ccache
-          export CMAKE_OBJCXX_COMPILER_LAUNCHER=ccache
-          # ccache workarounds for emscripten: allow time macros etc.
-          export CCACHE_SLOPPINESS="pch_defines,time_macros,include_file_mtime,include_file_ctime,file_macro"
-          export CCACHE_BASEDIR="$PWD"
+          # NOTE: Do NOT wrap CC/CXX with ccache via "ccache clang" or via
+          # CMAKE_*_COMPILER_LAUNCHER here. Filament's split build compiles host
+          # tools first (out/prebuilt-tools-release, incl. Dawn's CMakeLists
+          # which triggers an Objective-C detection step). When a compiler
+          # launcher is set, cmake's OBJC compiler auto-detection resolves the
+          # OBJC compiler to the ccache binary and fails the feature test:
+          #   "Check for working OBJC compiler: /usr/bin/ccache - broken"
+          #   ccache: error: Could not find compiler "-x" in PATH
+          # The host-tools build is small; the real speedup comes from the
+          # build-dir cache (out/... keyed on the pinned Filament commit), so we
+          # leave native compilation unwrapped (as in the previously-successful
+          # builds) and let ninja's incremental/cached outputs do the work.
           echo "CC=$CC  CXX=$CXX"
-          echo "CMAKE_C_COMPILER_LAUNCHER=$CMAKE_C_COMPILER_LAUNCHER"
-          echo "CCACHE_DIR=${CCACHE_DIR:-$HOME/.cache/ccache}"
-          ccache -s 2>&1 | head -30 || true
           # -p wasm : build WebAssembly target only
           # -W      : FILAMENT_SUPPORTS_WEBGPU=ON (adds --use-port=emdawnwebgpu)
           # -a      : package release-web tgz (filament.js, .wasm, .d.ts)
           ./build.sh -p wasm -W -a release 2>&1 | tee /tmp/filament_build.log
-          echo "=== ccache stats after build ==="
-          ccache -s 2>&1 | head -40 || true
 
       - name: List artifacts
         run: |
