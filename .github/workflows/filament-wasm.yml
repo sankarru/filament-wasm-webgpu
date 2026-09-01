@@ -51,7 +51,8 @@ jobs:
             libcurl4-openssl-dev libpng-dev libjpeg-dev zlib1g-dev \
             libtinfo-dev \
             libx11-dev libxcomposite-dev libxdamage-dev libxfixes-dev \
-            libxrandr-dev libxext-dev libx11-xcb-dev libxcb1-dev
+            libxrandr-dev libxext-dev libx11-xcb-dev libxcb1-dev \
+            libgl1-mesa-dev libegl1-mesa-dev libgles2-mesa-dev
 
       - name: Cache Filament build dirs (keyed on Filament commit)
         id: filament-cache
