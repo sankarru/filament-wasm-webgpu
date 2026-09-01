@@ -118,10 +118,17 @@ jobs:
           echo "EMSDK=$EMSDK" >> "$GITHUB_ENV"
           set -e -o pipefail
           # Host tools use clang via ccache; wasm uses emcc via ccache launcher.
-          export CC="ccache clang"
-          export CXX="ccache clang++"
+          # NOTE: CC must be the REAL compiler binary (NOT "ccache clang") — a
+          # space-prefixed string breaks cmake's language/OBJC detection, which
+          # derives CMAKE_OBJC_COMPILER from the first token of CC ("ccache") and
+          # then fails with "ccache: error: missing equal sign ...".
+          # Instead set CC to the compiler and enable ccache via the launcher vars.
+          export CC="clang"
+          export CXX="clang++"
           export CMAKE_C_COMPILER_LAUNCHER=ccache
           export CMAKE_CXX_COMPILER_LAUNCHER=ccache
+          export CMAKE_OBJC_COMPILER_LAUNCHER=ccache
+          export CMAKE_OBJCXX_COMPILER_LAUNCHER=ccache
           # ccache workarounds for emscripten: allow time macros etc.
           export CCACHE_SLOPPINESS="pch_defines,time_macros,include_file_mtime,include_file_ctime,file_macro"
           export CCACHE_BASEDIR="$PWD"
