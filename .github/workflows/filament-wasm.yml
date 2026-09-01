@@ -42,6 +42,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ninja-build clang \
+            libc++-dev libc++abi-dev \
             libcurl4-openssl-dev libpng-dev libjpeg-dev zlib1g-dev \
             libtinfo-dev \
             libx11-dev libxcomposite-dev libxdamage-dev libxfixes-dev \
