@@ -38,12 +38,14 @@ jobs:
           echo "EMSDK=$EMSDK"
           emcc --version | head -3
 
-      - name: Install host deps (clang, ninja, libs for matc/resgen/cmgen)
+      - name: Install host deps (clang, ninja, X11 + libs; Dawn config needs X11 headers)
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ninja-build clang \
             libcurl4-openssl-dev libpng-dev libjpeg-dev zlib1g-dev \
-            libtinfo-dev
+            libtinfo-dev \
+            libx11-dev libxcomposite-dev libxdamage-dev libxfixes-dev \
+            libxrandr-dev libxext-dev
 
       - name: Build Filament (WebAssembly, WebGPU backend) release
         run: |
