@@ -32,17 +32,6 @@ jobs:
         run: |
           echo "FILAMENT_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
-      - name: Cache ccache
-        id: ccache-cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/ccache
-            ~/.ccache
-          key: ccache-${{ env.CACHE_VERSION }}-${{ env.EMSDK_VERSION }}-${{ env.FILAMENT_COMMIT }}
-          restore-keys: |
-            ccache-${{ env.CACHE_VERSION }}-${{ env.EMSDK_VERSION }}-
-
       - name: Cache emsdk (fixed path for ninja stability)
         id: emsdk-cache
         uses: actions/cache@v4
@@ -84,22 +73,26 @@ jobs:
           emcc --version 2>&1 | head -1
           echo "emsdk path stable: $EMSDK/upstream/emscripten/emcc"
 
-      - name: Install host deps (clang, ninja, ccache, X11 + libs; Dawn config needs X11 headers)
+      - name: Install host deps (clang, ninja, X11 + libs; Dawn config needs X11 headers)
         run: |
+          # NOTE: DO NOT install ccache on the runner. Filament's split build
+          # compiles host "prebuilt-tools" first via cmake, and Dawn's
+          # CMakeLists runs an Objective-C detection step. When ccache is
+          # present in PATH, cmake resolves the C/OBJC compiler to
+          # /usr/bin/ccache and the feature test fails:
+          #   "Check for working OBJC compiler: /usr/bin/ccache - broken"
+          #   ccache: error: missing equal sign in ".../testObjCCompiler.m.o"
+          # This is a confirmed regression: the previously-successful builds
+          # had no ccache installed. The rebuild speedup comes from the
+          # build-dir cache (keyed on the pinned Filament commit), not ccache.
           sudo apt-get update -qq
-          sudo apt-get install -y -qq ninja-build clang ccache \
+          sudo apt-get install -y -qq ninja-build clang \
             libc++-dev libc++abi-dev \
             libcurl4-openssl-dev libpng-dev libjpeg-dev zlib1g-dev \
             libtinfo-dev \
             libx11-dev libxcomposite-dev libxdamage-dev libxfixes-dev \
             libxrandr-dev libxext-dev libx11-xcb-dev libxcb1-dev \
             libgl1-mesa-dev libegl1-mesa-dev libgles2-mesa-dev
-          ccache --version | head -1
-          ccache --set-config=max_size=2.0G || true
-          ccache --set-config=hash_dir=false || true
-          ccache --set-config=sloppiness="pch_defines,time_macros,include_file_mtime,include_file_ctime,file_macro" || true
-          ccache -z || true
-          ccache -s || true
 
       - name: Cache Filament build dirs (keyed on Filament commit + CACHE_VERSION)
         id: filament-cache
@@ -113,23 +106,10 @@ jobs:
           restore-keys: |
             filament-wasm-webgpu-${{ env.CACHE_VERSION }}-${{ env.EMSDK_VERSION }}-
 
-      - name: Build Filament (WebAssembly, WebGPU backend) release — ccache-accelerated
+      - name: Build Filament (WebAssembly, WebGPU backend) release
         run: |
           echo "EMSDK=$EMSDK" >> "$GITHUB_ENV"
           set -e -o pipefail
-          # NOTE: Do NOT wrap CC/CXX with ccache via "ccache clang" or via
-          # CMAKE_*_COMPILER_LAUNCHER here. Filament's split build compiles host
-          # tools first (out/prebuilt-tools-release, incl. Dawn's CMakeLists
-          # which triggers an Objective-C detection step). When a compiler
-          # launcher is set, cmake's OBJC compiler auto-detection resolves the
-          # OBJC compiler to the ccache binary and fails the feature test:
-          #   "Check for working OBJC compiler: /usr/bin/ccache - broken"
-          #   ccache: error: Could not find compiler "-x" in PATH
-          # The host-tools build is small; the real speedup comes from the
-          # build-dir cache (out/... keyed on the pinned Filament commit), so we
-          # leave native compilation unwrapped (as in the previously-successful
-          # builds) and let ninja's incremental/cached outputs do the work.
-          echo "CC=$CC  CXX=$CXX"
           # -p wasm : build WebAssembly target only
           # -W      : FILAMENT_SUPPORTS_WEBGPU=ON (adds --use-port=emdawnwebgpu)
           # -a      : package release-web tgz (filament.js, .wasm, .d.ts)
