@@ -8,7 +8,8 @@ on:
 env:
   EMSDK_VERSION: 5.0.4   # pinned by google/filament (build/common/versions)
   FILAMENT_TAG: '060fb3b16c4226df93d7231448ff2eb0f4dd2d5b'  # PINNED: stable cache key (was `main` → drift)
-  CACHE_VERSION: v2        # bump to discard poisoned caches (emsdk random path)
+  CACHE_VERSION: v3        # bump to discard poisoned caches (emsdk random path,
+                          # ccached CMakeCache.txt)
 
 concurrency:
   group: filament-build
